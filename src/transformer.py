@@ -39,10 +39,28 @@ class Transformer(nn.Module):
                 enc_d_model: int, dec_d_model: int, num_attention_heads: int, enc_intermediate_size: int, 
                 dec_intermediate_size: int, num_enc_hidden_layers: int, num_dec_hidden_layers: int
                 ):
+        
         super(Transformer, self).__init__()
-        self.encoder = None
-        self.decoder = None
-        self.output_linear = None
+
+        self.encoder = TransformerEncoder(
+            vocab_size=src_vocab_size,
+            max_position_embeddings=max_enc_position_embeddings,
+            d_model=enc_d_model,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=enc_intermediate_size,
+            num_hidden_layers=num_enc_hidden_layers
+        )
+
+        self.decoder = TransformerDecoder(
+            vocab_size=tgt_vocab_size,
+            max_position_embeddings=max_dec_position_embeddings,
+            d_model=dec_d_model,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=dec_intermediate_size,
+            num_hidden_layers=num_dec_hidden_layers
+        )
+
+        self.output_linear = nn.Linear(in_features=dec_d_model, out_features=tgt_vocab_size)
 
     def forward(self, src_input: torch.Tensor, tgt_input: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
         """Forward pass through the Transformer model.
@@ -56,13 +74,13 @@ class Transformer(nn.Module):
             torch.Tensor: Output tensor of shape (batch_size, tgt_seq_len, tgt_vocab_size).
         """
         # Pass the source input through the encoder
-        enc_output = None
+        enc_output = self.encoder(src_input, attn_mask)
 
         # Pass the target input through the decoder, with the encoder output
-        dec_output = None
+        dec_output = self.decoder(tgt_input, enc_output)
 
         # Project the decoder output to the target vocabulary size
-        dec_output = None
+        dec_output = self.output_linear(dec_output)
 
         return dec_output
     
