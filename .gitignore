@@ -1,0 +1,57 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python: caches and compiled files
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Quality tools and tests
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# TensorBoard logs and training results
+runs/
+logs/
+lightning_logs/
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+checkpoints/
+saved_models/
+
+# Hugging Face datasets and caches
+data/
+datasets/
+.cache/
+huggingface/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Operating system and editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Local VS Code configuration
+.vscode/
