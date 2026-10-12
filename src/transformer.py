@@ -286,7 +286,7 @@ class Transformer(nn.Module):
         """
         # Pass the source input through the encoder
         attn_mask = kwargs.get('attn_mask', None)
-        enc_output = None
+        enc_output = self.encoder(src_input, attn_mask)
 
         batch_size = src_input.size(0)
         device = src_input.device
@@ -296,32 +296,32 @@ class Transformer(nn.Module):
         EOS_token = kwargs.get('EOS_token', 3)
 
         # Initialize the target sequence with SOS_token
-        tgt_input = None
+        tgt_input = torch.full(size=(batch_size, 1), fill_value=SOS_token, dtype=torch.long, device=device)
 
         for _ in range(max_length):
             # Pass through the decoder
-            dec_output = None
+            dec_output = self.decoder(tgt_input, enc_output)
             # Project to vocabulary size
-            dec_output = None
+            dec_output = self.output_linear(dec_output)
             # Get the logits for the last time step
-            logits = None # Shape: (batch_size, vocab_size)
+            logits = dec_output[:, -1, :] # Shape: (batch_size, vocab_size)
             # Apply log softmax to get log probabilities
-            log_probs = None
+            log_probs = torch.softmax(logits, dim=1)
             # Get the top k tokens
-            topk_log_probs, topk_indices = None
+            topk_log_probs, topk_indices = torch.topk(log_probs, k=k, dim=1)
             # Sample from the top k tokens
-            probs = None
-            next_token = None  # Shape: (batch_size, 1)
+            probs = topk_log_probs / topk_log_probs.sum(dim=1, keepdim=True)
+            next_token = torch.multinomial(probs, 1)  # Shape: (batch_size, 1)
             # Map sampled indices to original token indices
-            next_token = None
+            next_token = torch.gather(topk_indices, 1, next_token)
             # Append next token to tgt_input
-            tgt_input = None
+            tgt_input = torch.cat((tgt_input, next_token), dim=1)
             # Check if all sequences have generated EOS_token
             if (next_token == EOS_token).all():
                 break
 
         # Return the generated sequences (excluding the first SOS token)
-        generated_sequence = None
+        generated_sequence = tgt_input[:, 1:]
         return generated_sequence
     
 
