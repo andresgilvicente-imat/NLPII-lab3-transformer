@@ -366,6 +366,8 @@ class Transformer(nn.Module):
             cumulative_probs = torch.cumsum(sorted_probs, dim=1)
             # Keep the smallest set of top tokens whose cumulative probability exceeds p
             # (the token that crosses p is kept) and remove the rest
+            # this operation allows us to know how much prob was accumulated before a specific index
+            # and that is what we compare with p to know if we take or remove the index
             sorted_indices_to_remove = (cumulative_probs - sorted_probs) > p
             sorted_probs[sorted_indices_to_remove] = 0
             # Normalize the probabilities
@@ -397,11 +399,12 @@ class Transformer(nn.Module):
         Returns:
             torch.Tensor: Generated sequence of token IDs of shape (batch_size, generated_seq_len).
         """
+
         # Pass the source input through the encoder
         attn_mask = kwargs.get('attn_mask', None)
-        enc_output = None
+        enc_output = self.encoder(src_input, attn_mask)
 
-        batch_size = src_input.size(0)
+        batch_size, src_seq_len = src_input.shape
         device = src_input.device
 
         # Get start and end tokens
@@ -409,58 +412,62 @@ class Transformer(nn.Module):
         EOS_token = kwargs.get('EOS_token', 3)
 
         # Initialize the target sequence with SOS_token
-        tgt_input = None
+        tgt_input = torch.full(size=(batch_size, 1), fill_value=SOS_token, dtype=torch.long, device=device)
 
         for _ in range(max_length):
             # Pass through the decoder
-            dec_output = None
+            dec_output = self.decoder(tgt_input, enc_output)
             # Project to vocabulary size
-            dec_output = None
+            dec_output = self.output_linear(dec_output)
             # Get the logits for the last time step
-            logits = None  # Shape: (batch_size, vocab_size)
+            logits = dec_output[:, -1, :]  # Shape: (batch_size, vocab_size)
             # Apply log softmax to get log probabilities
-            probs = None
+            probs = torch.softmax(logits, dim=1)
             # Get the top k tokens
-            topk_probs, topk_indices = None
+            topk_probs, topk_indices = torch.topk(probs, k=k, dim=1) 
 
             # Prepare tensors for all candidates
-            expanded_tgt_input = None  # Shape: (k, seq_len)
-            next_tokens = None  # Shape: (k, 1)
-            y_candidates = None  # Shape: (k, seq_len + 1)
+            seq_len = tgt_input.shape[1]
+            expanded_tgt_input = tgt_input.expand(size=(k, seq_len))  # Shape: (k, seq_len)
+            next_tokens = topk_indices.view((k, 1))  # Shape: (k, 1)
+            y_candidates = torch.cat((expanded_tgt_input, next_tokens), dim=1)  # Shape: (k, seq_len + 1)
 
             # Pass each candidate through the decoder
-            dec_outputs_candidate = None
+            dec_outputs_candidate = self.decoder(y_candidates, enc_output.expand(k, -1, -1)) # dims: (k, src_len, d_model)
 
             # Extract hidden states
-            h_v = None  # Shape: (k, hidden_size)
-            h_j = None  # Shape: (k, seq_len, hidden_size)
+            h_v = dec_outputs_candidate[:, -1, :]  # Shape: (k, hidden_size)
+            h_j = dec_outputs_candidate[:, :-1, :]  # Shape: (k, seq_len, hidden_size)
 
             # Normalize hidden states
-            h_v_norm = None  # Shape: (k, hidden_size)
-            h_j_norm = None  # Shape: (k, seq_len, hidden_size)
+            h_v_norm = F.normalize(h_v)  # Shape: (k, hidden_size)
+            h_j_norm = F.normalize(h_j, dim=-1)  # Shape: (k, seq_len, hidden_size)
 
             # Compute cosine similarities between h_v and each h_j
-            cos_sim = None  # Shape: (k, seq_len)
+            dot_product = torch.bmm(h_v_norm.unsqueeze(1), torch.transpose(h_j_norm, 1,2)).squeeze(dim=1)
+            module_h_v = torch.sqrt((h_v_norm**2).sum(dim=1))
+            module_h_j = torch.sqrt((h_j_norm**2).sum(dim=2))
+            cos_sim = dot_product / (module_h_v.unsqueeze(dim=1)*module_h_j) # Shape: (k, seq_len)
 
             # Get maximum cosine similarity for each candidate
-            max_sim = None  # Shape: (k,)
+            max_sim = torch.max(cos_sim, dim=1)[0]  # Shape: (k,)
 
             # Compute scores
-            P_LM_v = None  # Shape: (k,)
-            scores = None  # Shape: (k,)
+            P_LM_v = topk_probs.view((k,))  # Shape: (k,)
+            scores = (1-alpha)*P_LM_v - alpha*max_sim  # Shape: (k,)
 
             # Select the candidate with the highest score
-            best_idx = None
-            best_token = None  # Shape: (1, 1)
+            best_idx = torch.max(scores, dim=0)[1]
+            best_token = next_tokens[best_idx].view(1, 1)  # Shape: (1, 1)
             # Append the selected token to the target sequence
-            tgt_input = None  # Shape: (1, seq_len + 1)
+            tgt_input = torch.cat((tgt_input, best_token), dim=1)  # Shape: (1, seq_len + 1)
 
             # Check for EOS_token
             if best_token.item() == EOS_token:
                 break
 
         # Return generated sequence excluding SOS_token
-        generated_sequence = None
+        generated_sequence = tgt_input[:, 1:]
         return generated_sequence
 
 
