@@ -176,14 +176,14 @@ class Transformer(nn.Module):
 
         # Pass the source input through the encoder
         attn_mask = kwargs.get('attn_mask', None)
-        enc_output = None
+        enc_output = self.encoder(src_input, attn_mask)
 
         # Get start and end tokens
         SOS_token = kwargs.get('SOS_token', 2)
         EOS_token = kwargs.get('EOS_token', 3)
 
         # Initialize the beam with the start token
-        tgt_input = None
+        tgt_input = torch.full(size=(batch_size, 1), fill_value=SOS_token, dtype=torch.long, device=device)
         beam = [(tgt_input, 0)]  # Each item is (sequence tensor, cumulative log probability)
 
         for _ in range(max_length):
@@ -191,28 +191,31 @@ class Transformer(nn.Module):
             for seq, score in beam:
                 if seq[0, -1].item() == EOS_token:
                     # If EOS token is reached, add the sequence to candidates without expanding
-                    pass
+                    candidates.append((seq, score))
+                    continue
+
                 # Pass through the decoder
-                dec_output = None
+                dec_output = self.decoder(seq, enc_output)
                 # Project to vocabulary size
-                dec_output = None
+                dec_output = self.output_linear(dec_output)
                 # Get the logits for the last time step
-                logits = None  # Shape: (1, vocab_size)
+                logits = dec_output[:, -1, :]  # Shape: (1, vocab_size)
                 # Apply log softmax to get log probabilities
-                log_probs = None  # Shape: (1, vocab_size)
+                log_probs = torch.log_softmax(logits, dim=1)  # Shape: (1, vocab_size)
                 for next_token in range(log_probs.size(1)):
-                    new_seq = None  # Shape: (1, seq_len+1)
-                    new_score = None
+                    next_token_tensor = torch.full(size=(batch_size, 1), fill_value=next_token, dtype=torch.long, device=device)
+                    new_seq = torch.cat((seq, next_token_tensor), dim=1) # Shape: (1, seq_len+1)
+                    new_score = log_probs[:, next_token].item()
                     candidates.append((new_seq, new_score))
             # Select top beam_size sequences
-            beam = None
+            beam = sorted(candidates, key=lambda tup: tup[1], reverse=True)[:beam_size]
             # If all sequences have reached EOS, stop
             if all(seq[0, -1].item() == EOS_token for seq, _ in beam):
                 break
         # Return the sequence with the highest score
-        best_seq = None
+        best_seq = max(beam, key=lambda tup: tup[1])[0]
         # Remove the SOS token
-        generated_sequence = None  # Shape: (1, seq_len)
+        generated_sequence = best_seq[:, 1:]  # Shape: (1, seq_len)
         return generated_sequence
     
     def __sampling_decode(self, src_input: torch.Tensor, max_length: int, temperature: float = 1.0, **kwargs) -> torch.Tensor:
