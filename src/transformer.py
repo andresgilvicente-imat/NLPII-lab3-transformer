@@ -232,7 +232,7 @@ class Transformer(nn.Module):
         """
         # Pass the source input through the encoder
         attn_mask = kwargs.get('attn_mask', None)
-        enc_output = None
+        enc_output = self.encoder(src_input, attn_mask)
 
         batch_size = src_input.size(0)
         device = src_input.device
@@ -242,34 +242,34 @@ class Transformer(nn.Module):
         EOS_token = kwargs.get('EOS_token', 3)
 
         # Initialize the target sequence with SOS_token
-        tgt_input = None
+        tgt_input = torch.full(size=(batch_size, 1), fill_value=SOS_token, dtype=torch.long, device=device)
 
         for _ in range(max_length):
             # Pass through the decoder
-            dec_output = None
+            dec_output = self.decoder(tgt_input, enc_output)
             # Project to vocabulary size
-            dec_output = None
+            dec_output = self.output_linear(dec_output)
             # Get the logits for the last time step
-            logits = None  # Shape: (batch_size, vocab_size)
+            logits = dec_output[:, -1, :]  # Shape: (batch_size, vocab_size)
 
             # Apply temperature scaling to the logits
-            scaled_logits = None
+            scaled_logits = logits / temperature
 
             # Apply softmax to get probabilities
-            probs = None
+            probs = torch.softmax(scaled_logits, dim=1)
 
             # Sample from the probability distribution
-            next_token = None  # Shape: (batch_size, 1)
+            next_token = torch.multinomial(probs, 1)  # Shape: (batch_size, 1)
 
             # Append the next token to tgt_input
-            tgt_input = None
+            tgt_input = torch.cat((tgt_input, next_token), dim=1)
 
             # Check if all sequences have generated EOS_token
             if (next_token == EOS_token).all():
                 break
 
         # Return the generated sequences (excluding the first SOS token)
-        generated_sequence = None
+        generated_sequence = tgt_input[:, 1:]
         return generated_sequence
 
     def __top_k_sampling_decode(self, src_input: torch.Tensor, max_length: int, k: int = 10, **kwargs) -> torch.Tensor:
